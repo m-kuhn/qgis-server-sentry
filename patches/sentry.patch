@@ -1,0 +1,179 @@
+index 65fce97d..dec47c24 100644
+--- a/src/server/CMakeLists.txt
++++ b/src/server/CMakeLists.txt
+@@ -51,6 +51,7 @@ set(QGIS_SERVER_SRCS
+   qgsfeaturefilter.cpp
+   qgsstorebadlayerinfo.cpp
+   qgsserverquerystringparameter.cpp
++  watchdog.cpp
+ )
+ 
+ set (QGIS_SERVER_HDRS
+@@ -67,6 +68,7 @@ set (QGIS_SERVER_HDRS
+   qgsserverquerystringparameter.h
+   qgsserversettings.h
+   qgsservicemodule.h
++  watchdog.h
+ )
+ 
+ 
+@@ -148,6 +150,25 @@ install(TARGETS qgis_server
+ 
+ # end qgis_server library
+ 
++# start sentry
++include(FetchContent)
++
++set(SENTRY_BUILD_SHARED_LIBS ON CACHE INTERNAL "")  # Forces the value
++
++FetchContent_Declare(
++  sentry
++  GIT_REPOSITORY https://github.com/getsentry/sentry-native.git
++  GIT_TAG        0.5.3
++)
++FetchContent_MakeAvailable(sentry)
++
++# Will also affect the sentry build
++option(BUILD_SHARED_LIBS "Build using shared libraries" ON)
++
++target_link_libraries(qgis_server sentry::sentry)
++
++# end sentry
++
+ # add test resources, e.g. standard test font
+ set(QGIS_SERVER_TESTRCCS ../../tests/testdata/testdata.qrc)
+ 
+diff --git a/src/server/qgsserver.cpp b/src/server/qgsserver.cpp
+index db8fc755..0cf1cfb6 100644
+--- a/src/server/qgsserver.cpp
++++ b/src/server/qgsserver.cpp
+@@ -50,6 +50,9 @@
+ #include <fcgi_stdio.h>
+ #include <cstdlib>
+ 
++#include <QScopeGuard>
++#include <sentry.h>
++#include "watchdog.h"
+ 
+ // Server status static initializers.
+ // Default values are for C++, SIP bindings will override their
+@@ -65,6 +68,8 @@ QgsServiceRegistry *QgsServer::sServiceRegistry = nullptr;
+ 
+ Q_GLOBAL_STATIC( QgsServerSettings, sSettings );
+ 
++Q_GLOBAL_STATIC( Watchdog, sWatchdog );
++
+ QgsServer::QgsServer()
+ {
+   // QgsApplication must exist
+@@ -189,6 +194,13 @@ bool QgsServer::init()
+     return false;
+   }
+ 
++  sentry_options_t *options = sentry_options_new();
++  sentry_init(options);
++
++  sWatchdog()->start();
++
++  QObject::connect( QgsApplication::instance(), &QCoreApplication::aboutToQuit, sWatchdog(), &QThread::quit );
++
+   QCoreApplication::setOrganizationName( QgsApplication::QGIS_ORGANIZATION_NAME );
+   QCoreApplication::setOrganizationDomain( QgsApplication::QGIS_ORGANIZATION_DOMAIN );
+   QCoreApplication::setApplicationName( QgsApplication::QGIS_APPLICATION_NAME );
+@@ -384,6 +396,19 @@ void QgsServer::putenv( const QString &var, const QString &val )
+ 
+ void QgsServer::handleRequest( QgsServerRequest &request, QgsServerResponse &response, const QgsProject *project )
+ {
++  sentry_value_t crumb = sentry_value_new_breadcrumb("default", QStringLiteral( "Request: %1" ).arg( request.url().toString() ).toUtf8() );
++  sentry_add_breadcrumb( crumb );
++
++  QObject::connect( QgsApplication::messageLog(), qOverload<const QString &, const QString &, Qgis::MessageLevel>(&QgsMessageLog::messageReceived), QgsApplication::instance(), []( const QString &message, const QString &tag, Qgis::MessageLevel level ) {
++    sentry_value_t crumb = sentry_value_new_breadcrumb( "default", QStringLiteral( "[%1] %2" ).arg( tag, message ).toUtf8() );
++    sentry_add_breadcrumb( crumb );
++  } );
++
++  sWatchdog()->wakeUp();
++  QScopeGuard guard = qScopeGuard( [] { sWatchdog()->sleep(); } );
++
++  QThread::sleep( 10 );
++
+   const Qgis::MessageLevel logLevel = QgsServerLogger::instance()->logLevel();
+   {
+ 
+diff --git a/src/server/watchdog.cpp b/src/server/watchdog.cpp
+new file mode 100644
+index 00000000..571ea6a6
+--- /dev/null
++++ b/src/server/watchdog.cpp
+@@ -0,0 +1,47 @@
++#include "watchdog.h"
++#include "qgsmessagelog.h"
++#include "qgis.h"
++#include <csignal>
++#include <QtGlobal>
++#include <QEventLoop>
++#include <QDebug>
++
++void Watchdog::run()
++{
++  QgsMessageLog::logMessage("-- Watchdog running --", "watchdog", Qgis::Info);
++  mTimer = std::make_unique<QTimer>();
++  connect( mTimer.get(), &QTimer::timeout, this, &Watchdog::bark );
++  const QString timeoutEnv = getenv( "QGIS_SERVER_WATCHDOG_TIMEOUT" ); // in msec
++  int timeout;
++  bool timeoutOk = false;
++  if ( timeoutEnv.isEmpty() )
++  {
++    timeout = timeoutEnv.toInt( &timeoutOk );
++  }
++
++  if ( !timeoutOk )
++  {
++    QgsMessageLog::logMessage( "No QGIS_SERVER_WATCHDOG_TIMEOUT specified, defaulting to 1000", QStringLiteral( "Server" ), Qgis::MessageLevel::Warning );
++    timeout = 1000;
++  }
++
++  mTimer->setInterval( timeout );
++  mTimer->setSingleShot( true );
++
++  exec();
++}
++
++void Watchdog::wakeUp()
++{
++  QMetaObject::invokeMethod( mTimer.get(), [this] { qInfo() << "wake up"; mTimer->start(); });
++}
++
++void Watchdog::sleep()
++{
++  QMetaObject::invokeMethod( mTimer.get(), [this] { qInfo() << "sleep"; mTimer->stop(); });
++}
++
++void Watchdog::bark()
++{
++  qFatal( "*ç&%ç*%ç*%ç*V BOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOM" );
++}
+diff --git a/src/server/watchdog.h b/src/server/watchdog.h
+new file mode 100644
+index 00000000..1a058903
+--- /dev/null
++++ b/src/server/watchdog.h
+@@ -0,0 +1,17 @@
++#include <QThread>
++#include <QTimer>
++
++class Watchdog : public QThread
++{
++  public:
++    void run();
++
++    void wakeUp();
++    void sleep();
++
++  private slots:
++    void bark();
++
++  private:
++    std::unique_ptr<QTimer> mTimer;
++};
+\ No newline at end of file

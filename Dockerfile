@@ -7,16 +7,19 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get -y install \
   wget \
   devscripts \
   equivs \
-  grass-dev \
   python3-dev \
   libprotobuf-dev \
-  protobuf-compiler
+  protobuf-compiler \
+  pkg-config
+
 WORKDIR /src
 RUN git clone --depth 1 https://github.com/qgis/QGIS.git -b ${QGIS_VERSION}
 
 ADD patches patches
 RUN cd QGIS && patch -p1 < ../patches/sentry.patch
 
+RUN rm -rf /src/QGIS/debian
+ADD debian/* /src/QGIS/debian/
 #RUN rm QGIS/debian/control
 RUN cd QGIS && touch debian/*.in && make -f debian/rules
 RUN (export DEBIAN_FRONTEND=noninteractive; cd QGIS && yes | mk-build-deps --install --remove debian/control)

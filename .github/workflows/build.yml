@@ -31,3 +31,7 @@ jobs:
         push: true
         tags: ghcr.io/m-kuhn/qgis-server-sentry:latest
 
+#    - name: Upload debug symbols
+#      run:
+#        curl -sL https://sentry.io/get-cli/ | bash
+#        sentry-cli upload-dif -o opengisch -p test QGIS/debian/build/output/

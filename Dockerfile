@@ -26,7 +26,29 @@ RUN (export DEBIAN_FRONTEND=noninteractive; cd QGIS && yes | mk-build-deps --ins
 RUN cd QGIS && dpkg-buildpackage -us -uc
 RUN ls /src/*.deb
 
-FROM ubuntu:22.04
+FROM ubuntu:20.04
 COPY --from=builder /src/*.deb /src/
 RUN ls /src/*.deb
-RUN (export DEBIAN_FRONTEND=noninteractive; apt-get update && apt install -y /src/*.deb)
+RUN (export DEBIAN_FRONTEND=noninteractive; apt-get update && apt install -y /src/*.deb xvfb nginx spawn-fcgi)
+
+ADD conf/qgis-server-nginx.conf /etc/nginx/nginx.conf
+ADD start-xvfb-nginx.sh /usr/local/bin/start-xvfb-nginx.sh
+
+ENV QGIS_PREFIX_PATH /usr
+ENV QGIS_PLUGINPATH /io/plugins
+ENV QGIS_SERVER_LOG_LEVEL 1
+ENV QGIS_SERVER_LOG_STDERR true
+ENV QGIS_SERVER_PARALLEL_RENDERING true
+ENV QGIS_SERVER_MAX_THREADS 2
+ENV QGIS_AUTH_DB_DIR_PATH /tmp/
+
+ENV QT_GRAPHICSSYSTEM raster
+ENV DISPLAY :99
+ENV HOME /var/lib/qgis
+
+RUN mkdir $HOME && \
+    chmod 1777 $HOME
+WORKDIR $HOME
+
+EXPOSE 80/tcp 9993/tcp
+CMD /usr/local/bin/start-xvfb-nginx.sh

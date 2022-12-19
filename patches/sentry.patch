@@ -81,7 +81,7 @@ index db8fc755..0cf1cfb6 100644
    QCoreApplication::setOrganizationName( QgsApplication::QGIS_ORGANIZATION_NAME );
    QCoreApplication::setOrganizationDomain( QgsApplication::QGIS_ORGANIZATION_DOMAIN );
    QCoreApplication::setApplicationName( QgsApplication::QGIS_APPLICATION_NAME );
-@@ -384,6 +396,19 @@ void QgsServer::putenv( const QString &var, const QString &val )
+@@ -384,6 +396,17 @@ void QgsServer::putenv( const QString &var, const QString &val )
  
  void QgsServer::handleRequest( QgsServerRequest &request, QgsServerResponse &response, const QgsProject *project )
  {
@@ -95,8 +95,6 @@ index db8fc755..0cf1cfb6 100644
 +
 +  sWatchdog()->wakeUp();
 +  QScopeGuard guard = qScopeGuard( [] { sWatchdog()->sleep(); } );
-+
-+  QThread::sleep( 10 );
 +
    const Qgis::MessageLevel logLevel = QgsServerLogger::instance()->logLevel();
    {

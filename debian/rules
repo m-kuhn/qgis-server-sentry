@@ -215,9 +215,6 @@ endif
 override_dh_auto_install:
 	DESTDIR=$(CURDIR)/debian/tmp ninja $(NINJA_OPTS) -C $(QGIS_BUILDDIR) install
 
-	# remove unwanted files
-	$(RM) $(CURDIR)/debian/tmp/usr/share/qgis/doc/api/installdox
-
 	# replace leaflet and jquery urls
 	perl -i -p \
 		-e 's#http://.*/leaflet.css#leaflet/leaflet.css#;s#http://.*/leaflet.js#leaflet/leaflet.js#;s#http://.*/jquery-.*.min.js#jquery-min.js#' \

@@ -17,7 +17,7 @@ index 65fce97d..dec47c24 100644
  )
  
  
-@@ -148,6 +150,25 @@ install(TARGETS qgis_server
+@@ -148,6 +150,26 @@ install(TARGETS qgis_server
  
  # end qgis_server library
  
@@ -25,6 +25,7 @@ index 65fce97d..dec47c24 100644
 +include(FetchContent)
 +
 +set(SENTRY_BUILD_SHARED_LIBS ON CACHE INTERNAL "")  # Forces the value
++set(SENTRY_ENABLE_INSTALL ON CACHE INTERNAL "")  # Forces the value
 +
 +FetchContent_Declare(
 +  sentry

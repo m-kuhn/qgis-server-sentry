@@ -1,4 +1,5 @@
-index 65fce97d..dec47c24 100644
+diff --git a/src/server/CMakeLists.txt b/src/server/CMakeLists.txt
+index 65fce97de7..5a91bcb3b2 100644
 --- a/src/server/CMakeLists.txt
 +++ b/src/server/CMakeLists.txt
 @@ -51,6 +51,7 @@ set(QGIS_SERVER_SRCS
@@ -45,7 +46,7 @@ index 65fce97d..dec47c24 100644
  set(QGIS_SERVER_TESTRCCS ../../tests/testdata/testdata.qrc)
  
 diff --git a/src/server/qgsserver.cpp b/src/server/qgsserver.cpp
-index db8fc755..0cf1cfb6 100644
+index db8fc755d2..921474d3da 100644
 --- a/src/server/qgsserver.cpp
 +++ b/src/server/qgsserver.cpp
 @@ -50,6 +50,9 @@
@@ -81,7 +82,7 @@ index db8fc755..0cf1cfb6 100644
    QCoreApplication::setOrganizationName( QgsApplication::QGIS_ORGANIZATION_NAME );
    QCoreApplication::setOrganizationDomain( QgsApplication::QGIS_ORGANIZATION_DOMAIN );
    QCoreApplication::setApplicationName( QgsApplication::QGIS_APPLICATION_NAME );
-@@ -384,6 +396,17 @@ void QgsServer::putenv( const QString &var, const QString &val )
+@@ -384,6 +396,18 @@ void QgsServer::putenv( const QString &var, const QString &val )
  
  void QgsServer::handleRequest( QgsServerRequest &request, QgsServerResponse &response, const QgsProject *project )
  {
@@ -94,17 +95,18 @@ index db8fc755..0cf1cfb6 100644
 +  } );
 +
 +  sWatchdog()->wakeUp();
-+  QScopeGuard guard = qScopeGuard( [] { sWatchdog()->sleep(); } );
++  qInfo() << "Handling request :: " << request.url().toString();
++  QScopeGuard guard = qScopeGuard( [request] { qInfo() << "Done with request :: " << request.url().toString(); sWatchdog()->sleep(); } );
 +
    const Qgis::MessageLevel logLevel = QgsServerLogger::instance()->logLevel();
    {
  
 diff --git a/src/server/watchdog.cpp b/src/server/watchdog.cpp
 new file mode 100644
-index 00000000..571ea6a6
+index 0000000000..483c030050
 --- /dev/null
 +++ b/src/server/watchdog.cpp
-@@ -0,0 +1,47 @@
+@@ -0,0 +1,49 @@
 +#include "watchdog.h"
 +#include "qgsmessagelog.h"
 +#include "qgis.h"
@@ -118,20 +120,22 @@ index 00000000..571ea6a6
 +  QgsMessageLog::logMessage("-- Watchdog running --", "watchdog", Qgis::Info);
 +  mTimer = std::make_unique<QTimer>();
 +  connect( mTimer.get(), &QTimer::timeout, this, &Watchdog::bark );
++
 +  const QString timeoutEnv = getenv( "QGIS_SERVER_WATCHDOG_TIMEOUT" ); // in msec
 +  int timeout;
 +  bool timeoutOk = false;
-+  if ( timeoutEnv.isEmpty() )
++  if ( !timeoutEnv.isEmpty() )
 +  {
 +    timeout = timeoutEnv.toInt( &timeoutOk );
++    qWarning() << "Watchdog timeout: " << timeout;
 +  }
 +
 +  if ( !timeoutOk )
 +  {
++    qWarning() << "Default timeout 1000";
 +    QgsMessageLog::logMessage( "No QGIS_SERVER_WATCHDOG_TIMEOUT specified, defaulting to 1000", QStringLiteral( "Server" ), Qgis::MessageLevel::Warning );
 +    timeout = 1000;
 +  }
-+
 +  mTimer->setInterval( timeout );
 +  mTimer->setSingleShot( true );
 +
@@ -150,11 +154,11 @@ index 00000000..571ea6a6
 +
 +void Watchdog::bark()
 +{
-+  qFatal( "*ç&%ç*%ç*%ç*V BOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOM" );
++  qFatal( "BOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOM" );
 +}
 diff --git a/src/server/watchdog.h b/src/server/watchdog.h
 new file mode 100644
-index 00000000..1a058903
+index 0000000000..1a0589039b
 --- /dev/null
 +++ b/src/server/watchdog.h
 @@ -0,0 +1,17 @@

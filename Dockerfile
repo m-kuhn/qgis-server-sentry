@@ -24,7 +24,7 @@ ADD debian/* /src/QGIS/debian/
 RUN cd QGIS && touch debian/*.in && make -f debian/rules
 RUN (export DEBIAN_FRONTEND=noninteractive; cd QGIS && yes | mk-build-deps --install --remove debian/control)
 RUN cd QGIS && dpkg-buildpackage -us -uc
-RUN mkir release && mkdir debug && mv /src/*-dbg_*.deb debug && mv /src/*.deb release
+RUN mkdir /src/release && mkdir /src/debug && mv /src/*-dbg_*.deb /src/debug && mv /src/*.deb /src/release
 
 ## RELEASE
 FROM ubuntu:20.04 AS release
@@ -58,6 +58,7 @@ CMD /usr/local/bin/start-xvfb-nginx.sh
 FROM ubuntu:20.04 AS debug
 
 COPY --from=builder /src/release/*.deb /src/
+COPY --from=builder /src/debug/*.deb /src/
 RUN (export DEBIAN_FRONTEND=noninteractive; apt-get update && apt install -y /src/*.deb xvfb nginx spawn-fcgi)
 
 ADD conf/qgis-server-nginx.conf /etc/nginx/nginx.conf

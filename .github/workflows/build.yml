@@ -28,8 +28,21 @@ jobs:
       uses: docker/build-push-action@v3
       with:
         context: .
+        build-args: |
+          QGIS_VERSION=final-3_22_14
         push: true
+        target: release
         tags: ghcr.io/m-kuhn/qgis-server-sentry:latest
+
+    - name: Build and push
+      uses: docker/build-push-action@v3
+      with:
+        context: .
+        build-args: |
+          QGIS_VERSION=final-3_22_14
+        push: true
+        target: debug
+        tags: ghcr.io/m-kuhn/qgis-server-sentry-debug:latest
 
 #    - name: Upload debug symbols
 #      run:

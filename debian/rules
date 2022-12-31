@@ -107,10 +107,7 @@ ifneq (0,$(.SHELLSTATUS))
 		-DQT5_3DEXTRA_LIBRARY=/usr/lib/$(DEB_BUILD_MULTIARCH)/libQt53DExtras.so
 endif
 
-ifneq (,$(findstring debug,$(DEB_BUILD_OPTIONS)))
-	CMAKE_OPTS += -DCMAKE_BUILD_TYPE=Debug
-endif
-
+CMAKE_OPTS += -DCMAKE_BUILD_TYPE=Debug
 CMAKE_OPTS += -DENABLE_TESTS=FALSE
 
 CPPFLAGS := $(shell dpkg-buildflags --get CPPFLAGS)

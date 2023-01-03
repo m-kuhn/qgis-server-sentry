@@ -3,10 +3,17 @@ name: ci
 on:
   push:
     branches:
-      - 'main'
+      - main
 
 jobs:
   docker:
+    env:
+      DO_BUILD: true
+      QGIS_VERSION_SHORT: 3.22
+      QGIS_VERSION_PATCH: 3.22.14
+      QGIS_VERSION_TAG: final-3_22_14
+
+
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
@@ -18,31 +25,48 @@ jobs:
     - name: Login to Docker Registry
       uses: docker/login-action@v2
       with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 #        username: ${{ secrets.DOCKERHUB_USERNAME }}
 #        password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-    - name: Build and push
+    - name: Build base
       uses: docker/build-push-action@v3
       with:
         context: .
-        build-args: |
-          QGIS_VERSION=final-3_22_14
+        push: false
+        target: builder
+        build-args: QGIS_VERSION=${{ env.QGIS_VERSION_TAG }}
+        cache-to: type=local,dest=cache
+
+    - name: Build and push release
+      uses: docker/build-push-action@v3
+      if: env.DO_BUILD == 'true'
+      with:
+        context: .
         push: true
         target: release
-        tags: ghcr.io/m-kuhn/qgis-server-sentry:latest
+        build-args: QGIS_VERSION=${{ env.QGIS_VERSION_TAG }}
+        cache-from: type=local,src=cache
+        tags: |
+          ghcr.io/opengisch/qgis-slim:latest
+          ghcr.io/opengisch/qgis-slim:${{ env.QGIS_VERSION_SHORT }}
+          ghcr.io/opengisch/qgis-slim:${{ env.QGIS_VERSION_PATCH }}
 
-    - name: Build and push
+    - name: Build and push debug
       uses: docker/build-push-action@v3
+      if: env.DO_BUILD == 'true'
       with:
         context: .
-        build-args: |
-          QGIS_VERSION=final-3_22_14
         push: true
         target: debug
-        tags: ghcr.io/m-kuhn/qgis-server-sentry-debug:latest
+        build-args: QGIS_VERSION=${{ env.QGIS_VERSION_TAG }}
+        cache-from: type=local,src=cache
+        tags: |
+          ghcr.io/opengisch/qgis-slim-debug:latest
+          ghcr.io/opengisch/qgis-slim-debug:${{ env.QGIS_VERSION_SHORT }}
+          ghcr.io/opengisch/qgis-slim-debug:${{ env.QGIS_VERSION_PATCH }}
 
 #    - name: Upload debug symbols
 #      run:

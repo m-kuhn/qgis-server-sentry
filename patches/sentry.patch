@@ -31,7 +31,7 @@ index 65fce97de7..5a91bcb3b2 100644
 +FetchContent_Declare(
 +  sentry
 +  GIT_REPOSITORY https://github.com/getsentry/sentry-native.git
-+  GIT_TAG        0.2.6
++  GIT_TAG        0.5.3
 +)
 +FetchContent_MakeAvailable(sentry)
 +

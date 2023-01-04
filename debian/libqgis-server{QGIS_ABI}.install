@@ -2,7 +2,7 @@ usr/lib/libqgis_server.so.*
 usr/include/sentry.h
 usr/lib/x86_64-linux-gnu/libsentry.so
 usr/lib/x86_64-linux-gnu/cmake/sentry/sentry-targets.cmake
-usr/lib/x86_64-linux-gnu/cmake/sentry/sentry-targets-none.cmake
+usr/lib/x86_64-linux-gnu/cmake/sentry/sentry-targets-debug.cmake
 usr/lib/x86_64-linux-gnu/cmake/sentry/sentry-config.cmake
 usr/lib/x86_64-linux-gnu/cmake/sentry/sentry-config-version.cmake
 

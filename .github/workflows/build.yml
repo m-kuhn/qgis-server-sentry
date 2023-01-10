@@ -45,7 +45,6 @@ jobs:
         push: false
         target: builder
         build-args: QGIS_VERSION=${{ env.QGIS_VERSION_TAG }}
-        cache-to: type=local,dest=cache
 
     - name: Build and push release
       uses: docker/build-push-action@v3
@@ -55,7 +54,6 @@ jobs:
         push: true
         target: release
         build-args: QGIS_VERSION=${{ env.QGIS_VERSION_TAG }}
-        cache-from: type=local,src=cache
         tags: |
           ghcr.io/opengisch/qgis-slim:latest
           ghcr.io/opengisch/qgis-slim:${{ env.QGIS_VERSION_SHORT }}
@@ -69,7 +67,6 @@ jobs:
         push: true
         target: debug
         build-args: QGIS_VERSION=${{ env.QGIS_VERSION_TAG }}
-        cache-from: type=local,src=cache
         tags: |
           ghcr.io/opengisch/qgis-slim-debug:latest
           ghcr.io/opengisch/qgis-slim-debug:${{ env.QGIS_VERSION_SHORT }}

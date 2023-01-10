@@ -107,7 +107,8 @@ ifneq (0,$(.SHELLSTATUS))
 		-DQT5_3DEXTRA_LIBRARY=/usr/lib/$(DEB_BUILD_MULTIARCH)/libQt53DExtras.so
 endif
 
-CMAKE_OPTS += -DCMAKE_BUILD_TYPE=Debug
+# Adjust debian/libqgis-server{QGIS_ABI}.install as well
+# CMAKE_OPTS += -DCMAKE_BUILD_TYPE=Debug
 CMAKE_OPTS += -DENABLE_TESTS=FALSE
 
 CPPFLAGS := $(shell dpkg-buildflags --get CPPFLAGS)

@@ -29,7 +29,7 @@ RUN --mount=type=cache,target=/io mkdir /io/release && mkdir /io/debug && mv /sr
 ## RELEASE
 FROM ubuntu:20.04 AS release
 # wait for builder to finish
-COPY --from=builder /tmp/.lock /tmp/.lock
+# COPY --from=builder /tmp/.lock /tmp/.lock
 RUN --mount=type=cache,target=/io (export DEBIAN_FRONTEND=noninteractive; apt-get update && apt install -y /io/release/*.deb xvfb nginx spawn-fcgi)
 
 ADD conf/qgis-server-nginx.conf /etc/nginx/nginx.conf
@@ -57,7 +57,7 @@ CMD /usr/local/bin/start-xvfb-nginx.sh
 ## DEBUG
 FROM ubuntu:20.04 AS debug
 # wait for builder to finish
-COPY --from=builder /tmp/.lock /tmp/.lock
+# COPY --from=builder /tmp/.lock /tmp/.lock
 RUN --mount=type=cache,target=/io (export DEBIAN_FRONTEND=noninteractive; apt-get update && apt install -y /io/release/*.deb /io/debug/*.deb xvfb nginx spawn-fcgi)
 
 ADD conf/qgis-server-nginx.conf /etc/nginx/nginx.conf

@@ -1,0 +1,12 @@
+diff --git a/src/core/layout/qgslayoutitemlabel.cpp b/src/core/layout/qgslayoutitemlabel.cpp
+index df93c82d57..251e7c69e3 100644
+--- a/src/core/layout/qgslayoutitemlabel.cpp
++++ b/src/core/layout/qgslayoutitemlabel.cpp
+@@ -171,6 +171,7 @@ void QgsLayoutItemLabel::contentChanged()
+       mHtmlLoaded = false;
+ 
+       const QUrl baseUrl = QUrl::fromLocalFile( mLayout->project()->absoluteFilePath() );
++      mWebPage->settings()->setObjectCacheCapacities(0, 0, 0);
+       mWebPage->mainFrame()->setHtml( textToDraw, baseUrl );
+ 
+       //For very basic html labels with no external assets, the html load will already be

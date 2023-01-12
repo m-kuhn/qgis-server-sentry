@@ -58,6 +58,7 @@ jobs:
           ghcr.io/m-kuhn/qgis-server-sentry:latest
           ghcr.io/m-kuhn/qgis-server-sentry:${{ env.QGIS_VERSION_SHORT }}
           ghcr.io/m-kuhn/qgis-server-sentry:${{ env.QGIS_VERSION_PATCH }}
+          ghcr.io/m-kuhn/qgis-server-sentry:commit-${{ github.sha }}
 
     - name: Build and push debug
       uses: docker/build-push-action@v3
@@ -71,6 +72,7 @@ jobs:
           ghcr.io/m-kuhn/qgis-server-sentry-debug:latest
           ghcr.io/m-kuhn/qgis-server-sentry-debug:${{ env.QGIS_VERSION_SHORT }}
           ghcr.io/m-kuhn/qgis-server-sentry-debug:${{ env.QGIS_VERSION_PATCH }}
+          ghcr.io/m-kuhn/qgis-server-sentry-debug:commit-${{ github.sha }}
 
 #    - name: Upload debug symbols
 #      run:

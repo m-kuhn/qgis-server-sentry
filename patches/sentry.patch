@@ -46,7 +46,7 @@ index 65fce97de7..5a91bcb3b2 100644
  set(QGIS_SERVER_TESTRCCS ../../tests/testdata/testdata.qrc)
  
 diff --git a/src/server/qgsserver.cpp b/src/server/qgsserver.cpp
-index db8fc755d2..921474d3da 100644
+index db8fc755d2..96805548b9 100644
 --- a/src/server/qgsserver.cpp
 +++ b/src/server/qgsserver.cpp
 @@ -50,6 +50,9 @@
@@ -68,21 +68,37 @@ index db8fc755d2..921474d3da 100644
  QgsServer::QgsServer()
  {
    // QgsApplication must exist
-@@ -189,6 +194,13 @@ bool QgsServer::init()
+@@ -77,6 +82,12 @@ QgsServer::QgsServer()
+   mConfigCache = QgsConfigCache::instance();
+ }
+ 
++QgsServer::~QgsServer()
++{
++  sWatchdog()->exit();
++  sWatchdog()->wait();
++}
++
+ QFileInfo QgsServer::defaultAdminSLD()
+ {
+   return QFileInfo( QStringLiteral( "admin.sld" ) );
+@@ -189,6 +200,16 @@ bool QgsServer::init()
      return false;
    }
  
 +  sentry_options_t *options = sentry_options_new();
 +  sentry_init(options);
 +
++  qInfo() << "QGIS Server thread running on " << QThread::currentThread();
 +  sWatchdog()->start();
++  QgsApplication::instance()->processEvents(); // Needed to start thread
++  sWatchdog()->wakeUp();
 +
-+  QObject::connect( QgsApplication::instance(), &QCoreApplication::aboutToQuit, sWatchdog(), &QThread::quit );
++  // QObject::connect( QgsApplication::instance(), &QCoreApplication::aboutToQuit, sWatchdog(), []() { qWarning() << "Terminating"; sWatchdog()->exit(); sWatchdog()->wait(); } );
 +
    QCoreApplication::setOrganizationName( QgsApplication::QGIS_ORGANIZATION_NAME );
    QCoreApplication::setOrganizationDomain( QgsApplication::QGIS_ORGANIZATION_DOMAIN );
    QCoreApplication::setApplicationName( QgsApplication::QGIS_APPLICATION_NAME );
-@@ -384,6 +396,18 @@ void QgsServer::putenv( const QString &var, const QString &val )
+@@ -384,6 +405,18 @@ void QgsServer::putenv( const QString &var, const QString &val )
  
  void QgsServer::handleRequest( QgsServerRequest &request, QgsServerResponse &response, const QgsProject *project )
  {
@@ -101,12 +117,25 @@ index db8fc755d2..921474d3da 100644
    const Qgis::MessageLevel logLevel = QgsServerLogger::instance()->logLevel();
    {
  
+diff --git a/src/server/qgsserver.h b/src/server/qgsserver.h
+index 47159845d1..ae558b239a 100644
+--- a/src/server/qgsserver.h
++++ b/src/server/qgsserver.h
+@@ -54,6 +54,8 @@ class SERVER_EXPORT QgsServer
+      */
+     QgsServer();
+ 
++    ~QgsServer();
++
+     /**
+      * Set environment variable
+      * \param var environment variable name
 diff --git a/src/server/watchdog.cpp b/src/server/watchdog.cpp
 new file mode 100644
-index 0000000000..483c030050
+index 0000000000..4fde0bcc6c
 --- /dev/null
 +++ b/src/server/watchdog.cpp
-@@ -0,0 +1,49 @@
+@@ -0,0 +1,64 @@
 +#include "watchdog.h"
 +#include "qgsmessagelog.h"
 +#include "qgis.h"
@@ -114,42 +143,57 @@ index 0000000000..483c030050
 +#include <QtGlobal>
 +#include <QEventLoop>
 +#include <QDebug>
++#include "qgsapplication.h"
++#include <QMutexLocker>
 +
 +void Watchdog::run()
 +{
 +  QgsMessageLog::logMessage("-- Watchdog running --", "watchdog", Qgis::Info);
-+  mTimer = std::make_unique<QTimer>();
-+  connect( mTimer.get(), &QTimer::timeout, this, &Watchdog::bark );
++  QTimer feedbackTimer;
++  connect( &feedbackTimer, &QTimer::timeout, this, [=]() {
++    QMutexLocker locker( &mMutex );
++    if ( mCounter != -1 )
++    {
++      mCounter++;
++      if ( mCounter > mTimeout )
++        bark();
++    }
++  } );
++  feedbackTimer.setSingleShot( false );
++  feedbackTimer.start( 1000 );
 +
 +  const QString timeoutEnv = getenv( "QGIS_SERVER_WATCHDOG_TIMEOUT" ); // in msec
-+  int timeout;
 +  bool timeoutOk = false;
 +  if ( !timeoutEnv.isEmpty() )
 +  {
-+    timeout = timeoutEnv.toInt( &timeoutOk );
-+    qWarning() << "Watchdog timeout: " << timeout;
++    mTimeout = timeoutEnv.toInt( &timeoutOk );
++    qWarning() << "Watchdog initialized with timeout: " << mTimeout;
 +  }
 +
 +  if ( !timeoutOk )
 +  {
 +    qWarning() << "Default timeout 1000";
 +    QgsMessageLog::logMessage( "No QGIS_SERVER_WATCHDOG_TIMEOUT specified, defaulting to 1000", QStringLiteral( "Server" ), Qgis::MessageLevel::Warning );
-+    timeout = 1000;
++    mTimeout = 1000;
 +  }
-+  mTimer->setInterval( timeout );
-+  mTimer->setSingleShot( true );
++  // From msec to sec
++  mTimeout /= 1000;
 +
++  qInfo() << "Starting watchdog thread on " << QThread::currentThread();
 +  exec();
++  qInfo() << "Ending watchdog";
 +}
 +
 +void Watchdog::wakeUp()
 +{
-+  QMetaObject::invokeMethod( mTimer.get(), [this] { qInfo() << "wake up"; mTimer->start(); });
++  QMutexLocker locker( &mMutex );
++  mCounter = 0;
 +}
 +
 +void Watchdog::sleep()
 +{
-+  QMetaObject::invokeMethod( mTimer.get(), [this] { qInfo() << "sleep"; mTimer->stop(); });
++  QMutexLocker locker( &mMutex );
++  mCounter = -1;
 +}
 +
 +void Watchdog::bark()
@@ -158,12 +202,13 @@ index 0000000000..483c030050
 +}
 diff --git a/src/server/watchdog.h b/src/server/watchdog.h
 new file mode 100644
-index 0000000000..1a0589039b
+index 0000000000..642c2ba044
 --- /dev/null
 +++ b/src/server/watchdog.h
-@@ -0,0 +1,17 @@
+@@ -0,0 +1,20 @@
 +#include <QThread>
 +#include <QTimer>
++#include <QMutex>
 +
 +class Watchdog : public QThread
 +{
@@ -173,10 +218,11 @@ index 0000000000..1a0589039b
 +    void wakeUp();
 +    void sleep();
 +
-+  private slots:
++  private:
 +    void bark();
 +
 +  private:
-+    std::unique_ptr<QTimer> mTimer;
++    QMutex mMutex;
++    int mCounter;
++    int mTimeout;
 +};
-\ No newline at end of file

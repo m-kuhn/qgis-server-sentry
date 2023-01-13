@@ -1,5 +1,5 @@
 diff --git a/src/server/services/wfs3/qgswfs3handlers.cpp b/src/server/services/wfs3/qgswfs3handlers.cpp
-index 698f1404e8..83d5c0e0ac 100644
+index 698f1404e8..79b056f9b8 100644
 --- a/src/server/services/wfs3/qgswfs3handlers.cpp
 +++ b/src/server/services/wfs3/qgswfs3handlers.cpp
 @@ -1106,6 +1106,7 @@ const QList<QgsServerQueryStringParameter> QgsWfs3CollectionsItemsHandler::field
@@ -10,7 +10,7 @@ index 698f1404e8..83d5c0e0ac 100644
    if ( ! context.project() )
    {
      throw QgsServerApiImproperlyConfiguredException( QStringLiteral( "Project is invalid or undefined" ) );
-@@ -1116,6 +1117,8 @@ void QgsWfs3CollectionsItemsHandler::handleRequest( const QgsServerApiContext &c
+@@ -1116,17 +1117,22 @@ void QgsWfs3CollectionsItemsHandler::handleRequest( const QgsServerApiContext &c
    // Check if the layer is published, raise not found if it is not
    checkLayerIsAccessible( mapLayer, context );
  
@@ -19,7 +19,13 @@ index 698f1404e8..83d5c0e0ac 100644
    const std::string title { mapLayer->title().isEmpty() ? mapLayer->name().toStdString() : mapLayer->title().toStdString() };
  
    // Get parameters
-@@ -1127,6 +1130,7 @@ void QgsWfs3CollectionsItemsHandler::handleRequest( const QgsServerApiContext &c
+   QVariantMap params = values( context );
+ 
++  QgsMessageLog::logMessage( QStringLiteral( "switch '%1'" ).arg( QgsServerRequest::methodToString( context.request()->method() ) ), QStringLiteral( "Server" ), Qgis::MessageLevel::Info );
++
+   switch ( context.request()->method() )
+   {
+     // //////////////////////////////////////////////////////////////
      // Retrieve features
      case QgsServerRequest::Method::GetMethod:
      {
@@ -27,7 +33,7 @@ index 698f1404e8..83d5c0e0ac 100644
        // Validate inputs
        bool ok { false };
  
-@@ -1288,6 +1292,7 @@ void QgsWfs3CollectionsItemsHandler::handleRequest( const QgsServerApiContext &c
+@@ -1288,6 +1294,7 @@ void QgsWfs3CollectionsItemsHandler::handleRequest( const QgsServerApiContext &c
        long i { 0 };
        QMap<QgsFeatureId, QString> fidMap;
  
@@ -35,7 +41,7 @@ index 698f1404e8..83d5c0e0ac 100644
        while ( features.nextFeature( feat ) )
        {
          // Ignore records before offset
-@@ -1298,6 +1303,7 @@ void QgsWfs3CollectionsItemsHandler::handleRequest( const QgsServerApiContext &c
+@@ -1298,6 +1305,7 @@ void QgsWfs3CollectionsItemsHandler::handleRequest( const QgsServerApiContext &c
          }
          i++;
        }
@@ -43,7 +49,7 @@ index 698f1404e8..83d5c0e0ac 100644
  
        // Count features
        long matchedFeaturesCount = 0;
-@@ -1323,6 +1329,7 @@ void QgsWfs3CollectionsItemsHandler::handleRequest( const QgsServerApiContext &c
+@@ -1323,6 +1331,7 @@ void QgsWfs3CollectionsItemsHandler::handleRequest( const QgsServerApiContext &c
        }
  
        json data = exporter.exportFeaturesToJsonObject( featureList );
@@ -51,7 +57,7 @@ index 698f1404e8..83d5c0e0ac 100644
  
        // Patch feature IDs with server feature IDs
        for ( int i = 0; i < featureList.length(); i++ )
-@@ -1363,6 +1370,7 @@ void QgsWfs3CollectionsItemsHandler::handleRequest( const QgsServerApiContext &c
+@@ -1363,6 +1372,7 @@ void QgsWfs3CollectionsItemsHandler::handleRequest( const QgsServerApiContext &c
          }
        }
  
@@ -59,7 +65,7 @@ index 698f1404e8..83d5c0e0ac 100644
        // Add prev - next links
        if ( offset != 0 )
        {
-@@ -1398,13 +1406,16 @@ void QgsWfs3CollectionsItemsHandler::handleRequest( const QgsServerApiContext &c
+@@ -1398,13 +1408,16 @@ void QgsWfs3CollectionsItemsHandler::handleRequest( const QgsServerApiContext &c
          { "navigation", navigation }
        };
  
@@ -76,7 +82,12 @@ index 698f1404e8..83d5c0e0ac 100644
        // First: check permissions
        const QStringList wfstInsertLayerIds = QgsServerProjectUtils::wfstInsertLayerIds( *context.project() );
        if ( ! wfstInsertLayerIds.contains( mapLayer->id() ) || ! mapLayer->dataProvider()->capabilities().testFlag( QgsVectorDataProvider::Capability::AddFeatures ) )
-@@ -1549,6 +1560,7 @@ void QgsWfs3CollectionsItemsHandler::handleRequest( const QgsServerApiContext &c
+@@ -1545,10 +1558,12 @@ void QgsWfs3CollectionsItemsHandler::handleRequest( const QgsServerApiContext &c
+     // Error
+     default:
+     {
++      QgsMessageLog::logMessage( QStringLiteral( "throw not implemented exception: %1" ).arg( QgsServerRequest::methodToString( context.request()->method() ) ), QStringLiteral( "Server" ), Qgis::MessageLevel::Info );
+       throw QgsServerApiNotImplementedException( QStringLiteral( "%1 method is not implemented." )
            .arg( QgsServerRequest::methodToString( context.request()->method() ) ) );
      }
    } // end switch

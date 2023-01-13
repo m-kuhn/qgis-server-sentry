@@ -172,9 +172,9 @@ index 0000000000..4fde0bcc6c
 +
 +  if ( !timeoutOk )
 +  {
-+    qWarning() << "Default timeout 1000";
-+    QgsMessageLog::logMessage( "No QGIS_SERVER_WATCHDOG_TIMEOUT specified, defaulting to 1000", QStringLiteral( "Server" ), Qgis::MessageLevel::Warning );
-+    mTimeout = 1000;
++    qWarning() << "Default timeout 100000";
++    QgsMessageLog::logMessage( "No QGIS_SERVER_WATCHDOG_TIMEOUT specified, defaulting to 100000", QStringLiteral( "Server" ), Qgis::MessageLevel::Warning );
++    mTimeout = 100000;
 +  }
 +  // From msec to sec
 +  mTimeout /= 1000;

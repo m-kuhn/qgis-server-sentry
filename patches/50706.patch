@@ -1,0 +1,486 @@
+From 23c791182ce3dcd9d1bf1e31bf743e856d36d317 Mon Sep 17 00:00:00 2001
+From: Damiano Lombardi <damiano@opengis.ch>
+Date: Mon, 26 Sep 2022 11:46:40 +0200
+Subject: [PATCH 1/2] Label html subset
+
+---
+ .../layout/qgslayoutitemlabel.sip.in          | 15 +++
+ src/core/layout/qgslayoutitemlabel.cpp        | 97 ++++++++++++-------
+ src/core/layout/qgslayoutitemlabel.h          | 17 ++++
+ src/gui/layout/qgslayoutlabelwidget.cpp       | 13 +++
+ src/gui/layout/qgslayoutlabelwidget.h         |  3 +-
+ src/ui/layout/qgslayoutlabelwidgetbase.ui     | 30 ++++--
+ 6 files changed, 131 insertions(+), 44 deletions(-)
+
+diff --git a/python/core/auto_generated/layout/qgslayoutitemlabel.sip.in b/python/core/auto_generated/layout/qgslayoutitemlabel.sip.in
+index 0b9bab8e41fc..9b5a2f50c5dc 100644
+--- a/python/core/auto_generated/layout/qgslayoutitemlabel.sip.in
++++ b/python/core/auto_generated/layout/qgslayoutitemlabel.sip.in
+@@ -90,6 +90,13 @@ and other dynamic content).
+ Returns the label's current mode.
+ 
+ .. seealso:: :py:func:`setMode`
++%End
++
++    bool useHtmlSubset() const;
++%Docstring
++Returns true if the HTML subset mode is enabled
++
++.. seealso:: :py:func:`setUseHtmlSubset`
+ %End
+ 
+     void setMode( Mode mode );
+@@ -98,6 +105,14 @@ Sets the label's current ``mode``, allowing the label
+ to switch between font based and HTML based rendering.
+ 
+ .. seealso:: :py:func:`mode`
++%End
++
++    void setUseHtmlSubset( bool enabled );
++%Docstring
++If enabled the label will be rendered using the HTML subset provided
++by QTextDocument.
++
++.. seealso:: :py:func:`useHtmlSubset`
+ %End
+ 
+  QFont font() const /Deprecated/;
+diff --git a/src/core/layout/qgslayoutitemlabel.cpp b/src/core/layout/qgslayoutitemlabel.cpp
+index 50872b7bcbda..b370b004791c 100644
+--- a/src/core/layout/qgslayoutitemlabel.cpp
++++ b/src/core/layout/qgslayoutitemlabel.cpp
+@@ -147,10 +147,21 @@ void QgsLayoutItemLabel::draw( QgsLayoutItemRenderContext &context )
+ 
+       if ( mWebPage )
+       {
+-        painter->scale( 1.0 / mHtmlUnitsToLayoutUnits / 10.0, 1.0 / mHtmlUnitsToLayoutUnits / 10.0 );
+-        mWebPage->setViewportSize( QSize( painterRect.width() * mHtmlUnitsToLayoutUnits * 10.0, painterRect.height() * mHtmlUnitsToLayoutUnits * 10.0 ) );
+-        mWebPage->settings()->setUserStyleSheetUrl( createStylesheetUrl() );
+-        mWebPage->mainFrame()->render( painter );
++        if ( mUseHtmlSubset )
++        {
++          QTextDocument document;
++          document.setPageSize( QSize( painterRect.width() * mHtmlUnitsToLayoutUnits * 10.0, painterRect.height() * mHtmlUnitsToLayoutUnits * 10.0 ) );
++          document.setDefaultStyleSheet( createStylesheet() );
++          document.setHtml( currentText() );
++          document.drawContents( painter );
++        }
++        else
++        {
++          painter->scale( 1.0 / mHtmlUnitsToLayoutUnits / 10.0, 1.0 / mHtmlUnitsToLayoutUnits / 10.0 );
++          mWebPage->setViewportSize( QSize( painterRect.width() * mHtmlUnitsToLayoutUnits * 10.0, painterRect.height() * mHtmlUnitsToLayoutUnits * 10.0 ) );
++          mWebPage->settings()->setUserStyleSheetUrl( createStylesheetUrl() );
++          mWebPage->mainFrame()->render( painter );
++        }
+       }
+       break;
+     }
+@@ -273,6 +284,21 @@ void QgsLayoutItemLabel::setMode( Mode mode )
+   }
+ }
+ 
++void QgsLayoutItemLabel::setUseHtmlSubset( bool enabled )
++{
++  if ( enabled == mUseHtmlSubset )
++    return;
++
++  mUseHtmlSubset = enabled;
++  contentChanged();
++
++  if ( mLayout && id().isEmpty() )
++  {
++    //notify the model that the display name has changed
++    mLayout->itemsModel()->updateItemDisplayName( this );
++  }
++}
++
+ void QgsLayoutItemLabel::refreshExpressionContext()
+ {
+   if ( !mLayout )
+@@ -332,6 +358,39 @@ void QgsLayoutItemLabel::replaceDateText( QString &text ) const
+   }
+ }
+ 
++QString QgsLayoutItemLabel::createStylesheet() const
++{
++  QString stylesheet;
++  stylesheet += QStringLiteral( "body { margin: %1 %2;" ).arg( std::max( mMarginY * mHtmlUnitsToLayoutUnits, 0.0 ) ).arg( std::max( mMarginX * mHtmlUnitsToLayoutUnits, 0.0 ) );
++  QFont f = mFormat.font();
++  switch ( mFormat.sizeUnit() )
++  {
++    case QgsUnitTypes::RenderMillimeters:
++      f.setPointSizeF( mFormat.size() / 0.352778 );
++      break;
++    case QgsUnitTypes::RenderPixels:
++      f.setPixelSize( mFormat.size() );
++      break;
++    case QgsUnitTypes::RenderPoints:
++      f.setPointSizeF( mFormat.size() );
++      break;
++    case QgsUnitTypes::RenderInches:
++      f.setPointSizeF( mFormat.size() * 72 );
++      break;
++    case QgsUnitTypes::RenderUnknownUnit:
++    case QgsUnitTypes::RenderPercentage:
++    case QgsUnitTypes::RenderMetersInMapUnits:
++    case QgsUnitTypes::RenderMapUnits:
++      break;
++  }
++
++  stylesheet += QgsFontUtils::asCSS( f, 0.352778 * mHtmlUnitsToLayoutUnits );
++  stylesheet += QStringLiteral( "color: rgba(%1,%2,%3,%4);" ).arg( mFormat.color().red() ).arg( mFormat.color().green() ).arg( mFormat.color().blue() ).arg( QString::number( mFormat.color().alphaF(), 'f', 4 ) );
++  stylesheet += QStringLiteral( "text-align: %1; }" ).arg( mHAlignment == Qt::AlignLeft ? QStringLiteral( "left" ) : mHAlignment == Qt::AlignRight ? QStringLiteral( "right" ) : mHAlignment == Qt::AlignHCenter ? QStringLiteral( "center" ) : QStringLiteral( "justify" ) );
++
++  return stylesheet;
++}
++
+ void QgsLayoutItemLabel::setFont( const QFont &f )
+ {
+   mFormat.setFont( f );
+@@ -663,36 +722,8 @@ void QgsLayoutItemLabel::itemShiftAdjustSize( double newWidth, double newHeight,
+ 
+ QUrl QgsLayoutItemLabel::createStylesheetUrl() const
+ {
+-  QString stylesheet;
+-  stylesheet += QStringLiteral( "body { margin: %1 %2;" ).arg( std::max( mMarginY * mHtmlUnitsToLayoutUnits, 0.0 ) ).arg( std::max( mMarginX * mHtmlUnitsToLayoutUnits, 0.0 ) );
+-  QFont f = mFormat.font();
+-  switch ( mFormat.sizeUnit() )
+-  {
+-    case QgsUnitTypes::RenderMillimeters:
+-      f.setPointSizeF( mFormat.size() / 0.352778 );
+-      break;
+-    case QgsUnitTypes::RenderPixels:
+-      f.setPixelSize( mFormat.size() );
+-      break;
+-    case QgsUnitTypes::RenderPoints:
+-      f.setPointSizeF( mFormat.size() );
+-      break;
+-    case QgsUnitTypes::RenderInches:
+-      f.setPointSizeF( mFormat.size() * 72 );
+-      break;
+-    case QgsUnitTypes::RenderUnknownUnit:
+-    case QgsUnitTypes::RenderPercentage:
+-    case QgsUnitTypes::RenderMetersInMapUnits:
+-    case QgsUnitTypes::RenderMapUnits:
+-      break;
+-  }
+-
+-  stylesheet += QgsFontUtils::asCSS( f, 0.352778 * mHtmlUnitsToLayoutUnits );
+-  stylesheet += QStringLiteral( "color: rgba(%1,%2,%3,%4);" ).arg( mFormat.color().red() ).arg( mFormat.color().green() ).arg( mFormat.color().blue() ).arg( QString::number( mFormat.color().alphaF(), 'f', 4 ) );
+-  stylesheet += QStringLiteral( "text-align: %1; }" ).arg( mHAlignment == Qt::AlignLeft ? QStringLiteral( "left" ) : mHAlignment == Qt::AlignRight ? QStringLiteral( "right" ) : mHAlignment == Qt::AlignHCenter ? QStringLiteral( "center" ) : QStringLiteral( "justify" ) );
+-
+   QByteArray ba;
+-  ba.append( stylesheet.toUtf8() );
++  ba.append( createStylesheet().toUtf8() );
+   QUrl cssFileURL = QUrl( QString( "data:text/css;charset=utf-8;base64," + ba.toBase64() ) );
+ 
+   return cssFileURL;
+diff --git a/src/core/layout/qgslayoutitemlabel.h b/src/core/layout/qgslayoutitemlabel.h
+index 3a4a9329dcd8..14db36dee60c 100644
+--- a/src/core/layout/qgslayoutitemlabel.h
++++ b/src/core/layout/qgslayoutitemlabel.h
+@@ -101,6 +101,12 @@ class CORE_EXPORT QgsLayoutItemLabel: public QgsLayoutItem
+      */
+     Mode mode() const { return mMode; }
+ 
++    /**
++     * Returns true if the HTML subset mode is enabled
++     * \see setUseHtmlSubset()
++     */
++    bool useHtmlSubset() const { return mUseHtmlSubset; }
++
+     /**
+      * Sets the label's current \a mode, allowing the label
+      * to switch between font based and HTML based rendering.
+@@ -108,6 +114,13 @@ class CORE_EXPORT QgsLayoutItemLabel: public QgsLayoutItem
+      */
+     void setMode( Mode mode );
+ 
++    /**
++     * If enabled the label will be rendered using the HTML subset provided
++     * by QTextDocument.
++     * \see useHtmlSubset()
++     */
++    void setUseHtmlSubset( bool enabled );
++
+     /**
+      * Returns the label's current font.
+      * \see setFont()
+@@ -265,6 +278,7 @@ class CORE_EXPORT QgsLayoutItemLabel: public QgsLayoutItem
+     QString mText;
+ 
+     Mode mMode = ModeFont;
++    bool mUseHtmlSubset;
+     double mHtmlUnitsToLayoutUnits = 1.0;
+     double htmlUnitsToLayoutUnits(); //calculate scale factor
+     bool mHtmlLoaded = false;
+@@ -291,6 +305,9 @@ class CORE_EXPORT QgsLayoutItemLabel: public QgsLayoutItem
+     //! Replaces replace '$CURRENT_DATE<(FORMAT)>' with the current date (e.g. $CURRENT_DATE(d 'June' yyyy)
+     void replaceDateText( QString &text ) const;
+ 
++    //! Creates stylesheet content using the current font and label appearance settings
++    QString createStylesheet() const;
++
+     //! Creates an encoded stylesheet url using the current font and label appearance settings
+     QUrl createStylesheetUrl() const;
+ 
+diff --git a/src/gui/layout/qgslayoutlabelwidget.cpp b/src/gui/layout/qgslayoutlabelwidget.cpp
+index e125d612f025..021a39283a94 100644
+--- a/src/gui/layout/qgslayoutlabelwidget.cpp
++++ b/src/gui/layout/qgslayoutlabelwidget.cpp
+@@ -38,6 +38,7 @@ QgsLayoutLabelWidget::QgsLayoutLabelWidget( QgsLayoutItemLabel *label )
+ 
+   setupUi( this );
+   connect( mHtmlCheckBox, &QCheckBox::stateChanged, this, &QgsLayoutLabelWidget::mHtmlCheckBox_stateChanged );
++  connect( mUseHtmlSubset, &QCheckBox::stateChanged, this, &QgsLayoutLabelWidget::mUseHtmlSubset_stateChanged );
+   connect( mTextEdit, &QPlainTextEdit::textChanged, this, &QgsLayoutLabelWidget::mTextEdit_textChanged );
+   connect( mInsertExpressionButton, &QPushButton::clicked, this, &QgsLayoutLabelWidget::mInsertExpressionButton_clicked );
+   connect( mMarginXDoubleSpinBox, static_cast < void ( QDoubleSpinBox::* )( double ) > ( &QDoubleSpinBox::valueChanged ), this, &QgsLayoutLabelWidget::mMarginXDoubleSpinBox_valueChanged );
+@@ -279,6 +280,16 @@ void QgsLayoutLabelWidget::mHtmlCheckBox_stateChanged( int state )
+   }
+ }
+ 
++void QgsLayoutLabelWidget::mUseHtmlSubset_stateChanged( int state )
++{
++  Q_UNUSED( state )
++
++  if ( label )
++  {
++    mLabel->setUseHtmlSubset( mUseHtmlSubset->isChecked() );
++  }
++}
++
+ void QgsLayoutLabelWidget::mTextEdit_textChanged()
+ {
+   if ( mLabel )
+@@ -445,6 +456,7 @@ void QgsLayoutLabelWidget::setGuiElementValues()
+   mMarginXDoubleSpinBox->setValue( mLabel->marginX() );
+   mMarginYDoubleSpinBox->setValue( mLabel->marginY() );
+   mHtmlCheckBox->setChecked( mLabel->mode() == QgsLayoutItemLabel::ModeHtml );
++  mUseHtmlSubset->setChecked( mLabel->useHtmlSubset() );
+   mTopRadioButton->setChecked( mLabel->vAlign() == Qt::AlignTop );
+   mMiddleRadioButton->setChecked( mLabel->vAlign() == Qt::AlignVCenter );
+   mBottomRadioButton->setChecked( mLabel->vAlign() == Qt::AlignBottom );
+@@ -465,6 +477,7 @@ void QgsLayoutLabelWidget::blockAllSignals( bool block )
+ {
+   mTextEdit->blockSignals( block );
+   mHtmlCheckBox->blockSignals( block );
++  mUseHtmlSubset->blockSignals( block );
+   mMarginXDoubleSpinBox->blockSignals( block );
+   mMarginYDoubleSpinBox->blockSignals( block );
+   mTopRadioButton->blockSignals( block );
+diff --git a/src/gui/layout/qgslayoutlabelwidget.h b/src/gui/layout/qgslayoutlabelwidget.h
+index bae4d81919e9..0cfc36de5368 100644
+--- a/src/gui/layout/qgslayoutlabelwidget.h
++++ b/src/gui/layout/qgslayoutlabelwidget.h
+@@ -64,7 +64,8 @@ class GUI_EXPORT QgsLayoutLabelWidget: public QgsLayoutItemBaseWidget, public Qg
+     bool setNewItem( QgsLayoutItem *item ) override;
+ 
+   private slots:
+-    void mHtmlCheckBox_stateChanged( int i );
++    void mHtmlCheckBox_stateChanged( int state );
++    void mUseHtmlSubset_stateChanged( int state );
+     void mTextEdit_textChanged();
+     void mInsertExpressionButton_clicked();
+     void mMarginXDoubleSpinBox_valueChanged( double d );
+diff --git a/src/ui/layout/qgslayoutlabelwidgetbase.ui b/src/ui/layout/qgslayoutlabelwidgetbase.ui
+index 4fc846bd309b..24fed159e9cb 100644
+--- a/src/ui/layout/qgslayoutlabelwidgetbase.ui
++++ b/src/ui/layout/qgslayoutlabelwidgetbase.ui
+@@ -84,7 +84,7 @@
+           <bool>false</bool>
+          </property>
+          <layout class="QGridLayout" name="gridLayout_2">
+-          <item row="2" column="1">
++          <item row="3" column="1">
+            <widget class="QToolButton" name="mDynamicTextButton">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+@@ -100,7 +100,14 @@
+             </property>
+            </widget>
+           </item>
+-          <item row="2" column="0">
++          <item row="1" column="0" colspan="2">
++           <widget class="QCheckBox" name="mHtmlCheckBox">
++            <property name="text">
++             <string>Render as HTML</string>
++            </property>
++           </widget>
++          </item>
++          <item row="3" column="0">
+            <widget class="QToolButton" name="mInsertExpressionButton">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+@@ -122,13 +129,6 @@
+             </property>
+            </widget>
+           </item>
+-          <item row="1" column="0" colspan="2">
+-           <widget class="QCheckBox" name="mHtmlCheckBox">
+-            <property name="text">
+-             <string>Render as HTML</string>
+-            </property>
+-           </widget>
+-          </item>
+           <item row="0" column="0" colspan="2">
+            <widget class="QPlainTextEdit" name="mTextEdit">
+             <property name="minimumSize">
+@@ -139,6 +139,16 @@
+             </property>
+            </widget>
+           </item>
++          <item row="2" column="0">
++           <widget class="QCheckBox" name="mUseHtmlSubset">
++            <property name="toolTip">
++             <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;If checked only a subset of the HTML language can be rendered but exported hyperlink are clickable in exported PDF documents.&lt;/p&gt;&lt;p&gt;&lt;a href=&quot;https://doc.qt.io/qt-5/richtext-html-subset.html&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#2980b9;&quot;&gt;More informations&lt;/span&gt;&lt;/a&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
++            </property>
++            <property name="text">
++             <string>Use HTML subset</string>
++            </property>
++           </widget>
++          </item>
+          </layout>
+         </widget>
+        </item>
+@@ -384,7 +394,7 @@
+  <resources/>
+  <connections/>
+  <buttongroups>
+-  <buttongroup name="buttonGroup"/>
+   <buttongroup name="buttonGroup_2"/>
++  <buttongroup name="buttonGroup"/>
+  </buttongroups>
+ </ui>
+
+From a12d575f46e4cd4e36e9b811fdc2bfe3d0b984de Mon Sep 17 00:00:00 2001
+From: Damiano Lombardi <damiano@opengis.ch>
+Date: Wed, 26 Oct 2022 15:18:42 +0200
+Subject: [PATCH 2/2] Html option
+
+---
+ src/core/layout/qgslayoutitemlabel.cpp | 50 ++++++++++++++++++++++++--
+ src/core/layout/qgslayoutitemlabel.h   |  4 ++-
+ 2 files changed, 50 insertions(+), 4 deletions(-)
+
+diff --git a/src/core/layout/qgslayoutitemlabel.cpp b/src/core/layout/qgslayoutitemlabel.cpp
+index b370b004791c..e7d92407a152 100644
+--- a/src/core/layout/qgslayoutitemlabel.cpp
++++ b/src/core/layout/qgslayoutitemlabel.cpp
+@@ -41,6 +41,7 @@
+ #include <QTimer>
+ #include <QEventLoop>
+ #include <QThread>
++#include <QTextDocument>
+ 
+ QgsLayoutItemLabel::QgsLayoutItemLabel( QgsLayout *layout )
+   : QgsLayoutItem( layout )
+@@ -117,7 +118,8 @@ void QgsLayoutItemLabel::draw( QgsLayoutItemRenderContext &context )
+   const QgsScopedQPainterState painterState( painter );
+ 
+   double rectScale = 1.0;
+-  if ( mMode == QgsLayoutItemLabel::ModeFont )
++  if ( mMode == QgsLayoutItemLabel::ModeFont
++       || ( mMode == QgsLayoutItemLabel::ModeHtml && mUseHtmlSubset ) )
+   {
+     rectScale = context.renderContext().scaleFactor();
+   }
+@@ -149,11 +151,24 @@ void QgsLayoutItemLabel::draw( QgsLayoutItemRenderContext &context )
+       {
+         if ( mUseHtmlSubset )
+         {
++          painter->save();
++
++          // Magic scale to have the same rendered size as with other options
++          painter->scale( 0.6, 0.6 );
++
+           QTextDocument document;
+-          document.setPageSize( QSize( painterRect.width() * mHtmlUnitsToLayoutUnits * 10.0, painterRect.height() * mHtmlUnitsToLayoutUnits * 10.0 ) );
++          document.setPageSize( QSize( painterRect.width(), painterRect.height() ) );
+           document.setDefaultStyleSheet( createStylesheet() );
++          document.setDefaultFont(getRenderFont());
++
++          QTextOption textOption = document.defaultTextOption();
++          textOption.setAlignment(mHAlignment);
++          document.setDefaultTextOption(textOption);
++
+           document.setHtml( currentText() );
+-          document.drawContents( painter );
++
++          document.drawContents( painter, painterRect );
++          painter->restore();
+         }
+         else
+         {
+@@ -358,6 +373,33 @@ void QgsLayoutItemLabel::replaceDateText( QString &text ) const
+   }
+ }
+ 
++QFont QgsLayoutItemLabel::getRenderFont() const
++{
++    QFont f = mFormat.font();
++    switch ( mFormat.sizeUnit() )
++    {
++      case QgsUnitTypes::RenderMillimeters:
++        f.setPointSizeF( mFormat.size() / 0.352778 );
++        break;
++      case QgsUnitTypes::RenderPixels:
++        f.setPixelSize( mFormat.size() );
++        break;
++      case QgsUnitTypes::RenderPoints:
++        f.setPointSizeF( mFormat.size() );
++        break;
++      case QgsUnitTypes::RenderInches:
++        f.setPointSizeF( mFormat.size() * 72 );
++        break;
++      case QgsUnitTypes::RenderUnknownUnit:
++      case QgsUnitTypes::RenderPercentage:
++      case QgsUnitTypes::RenderMetersInMapUnits:
++      case QgsUnitTypes::RenderMapUnits:
++        break;
++    }
++
++    return f;
++}
++
+ QString QgsLayoutItemLabel::createStylesheet() const
+ {
+   QString stylesheet;
+@@ -465,6 +507,7 @@ QFont QgsLayoutItemLabel::font() const
+ bool QgsLayoutItemLabel::writePropertiesToElement( QDomElement &layoutLabelElem, QDomDocument &doc, const QgsReadWriteContext &rwContext ) const
+ {
+   layoutLabelElem.setAttribute( QStringLiteral( "htmlState" ), static_cast< int >( mMode ) );
++  layoutLabelElem.setAttribute( QStringLiteral( "useHtmlSubset" ), mUseHtmlSubset );
+ 
+   layoutLabelElem.setAttribute( QStringLiteral( "labelText" ), mText );
+   layoutLabelElem.setAttribute( QStringLiteral( "marginX" ), QString::number( mMarginX ) );
+@@ -487,6 +530,7 @@ bool QgsLayoutItemLabel::readPropertiesFromElement( const QDomElement &itemElem,
+ 
+   //html state
+   mMode = static_cast< Mode >( itemElem.attribute( QStringLiteral( "htmlState" ) ).toInt() );
++  mUseHtmlSubset = ( itemElem.attribute( QStringLiteral( "useHtmlSubset" ), QStringLiteral( "0" ) ) != QLatin1String( "0" ) );
+ 
+   //margin
+   bool marginXOk = false;
+diff --git a/src/core/layout/qgslayoutitemlabel.h b/src/core/layout/qgslayoutitemlabel.h
+index 14db36dee60c..7bc8e07f7eae 100644
+--- a/src/core/layout/qgslayoutitemlabel.h
++++ b/src/core/layout/qgslayoutitemlabel.h
+@@ -278,7 +278,7 @@ class CORE_EXPORT QgsLayoutItemLabel: public QgsLayoutItem
+     QString mText;
+ 
+     Mode mMode = ModeFont;
+-    bool mUseHtmlSubset;
++    bool mUseHtmlSubset = false;
+     double mHtmlUnitsToLayoutUnits = 1.0;
+     double htmlUnitsToLayoutUnits(); //calculate scale factor
+     bool mHtmlLoaded = false;
+@@ -305,6 +305,8 @@ class CORE_EXPORT QgsLayoutItemLabel: public QgsLayoutItem
+     //! Replaces replace '$CURRENT_DATE<(FORMAT)>' with the current date (e.g. $CURRENT_DATE(d 'June' yyyy)
+     void replaceDateText( QString &text ) const;
+ 
++    QFont getRenderFont() const;
++
+     //! Creates stylesheet content using the current font and label appearance settings
+     QString createStylesheet() const;
+ 

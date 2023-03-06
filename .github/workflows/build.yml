@@ -80,7 +80,8 @@ jobs:
           ghcr.io/opengisch/qgis-server-bafu-sam-debug:${{ env.QGIS_VERSION_PATCH }}
           ghcr.io/opengisch/qgis-server-bafu-sam-debug:commit-${{ github.sha }}
 
-#    - name: Upload debug symbols
-#      run:
-#        curl -sL https://sentry.io/get-cli/ | bash
-#        sentry-cli upload-dif -o opengisch -p test QGIS/debian/build/output/
+    - name: Upload debug symbols
+      env:
+        SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      run:
+        docker run -eSENTRY_AUTH_TOKEN -v$(pwd)/scripts/upload_debug_symbols.sh:/io/scripts/upload_debug_symbols.sh ghcr.io/opengisch/qgis-server-bafu-sam-debug:commit-${{ github.sha }} /io/scripts/upload_debug_symbols.sh

@@ -55,3 +55,5 @@ fi
 spawn-fcgi -n -u ${QGIS_USER:-www-data} -g ${QGIS_USER:-www-data} -d ${HOME:-/var/lib/qgis} -P /run/qgis.pid -p 9993 -- /usr/lib/cgi-bin/qgis_mapserv.fcgi &
 QGIS_PID=$(waitfor /usr/lib/cgi-bin/qgis_mapserv.fcgi)
 wait $QGIS_PID
+# Start process again to upload sentry info
+/usr/lib/cgi-bin/qgis_mapserv.fcgi

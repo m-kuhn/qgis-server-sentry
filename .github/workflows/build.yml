@@ -84,4 +84,4 @@ jobs:
       env:
         SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
       run:
-        docker run -eSENTRY_AUTH_TOKEN -v$(pwd)/scripts/upload_debug_symbols.sh:/io/scripts/upload_debug_symbols.sh ghcr.io/opengisch/qgis-server-bafu-sam-debug:commit-${{ github.sha }} /io/scripts/upload_debug_symbols.sh
+        docker run -eSENTRY_AUTH_TOKEN -v$(pwd)/scripts:/io/scripts ghcr.io/opengisch/qgis-server-bafu-sam-debug:commit-${{ github.sha }} /io/scripts/upload_sentry_symbols.sh

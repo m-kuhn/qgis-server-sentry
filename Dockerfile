@@ -18,6 +18,7 @@ RUN git clone --depth 1 https://github.com/qgis/QGIS.git -b ${QGIS_VERSION}
 ADD patches patches
 RUN cd QGIS && patch -p1 < ../patches/sentry.patch
 RUN cd QGIS && patch -p1 < ../patches/debug-wfs3.patch
+RUN cd QGIS && patch -p1 < ../patches/catch-all.patch
 
 RUN rm -rf /src/QGIS/debian
 ADD debian/* /src/QGIS/debian/

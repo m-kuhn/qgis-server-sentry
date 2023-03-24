@@ -1,24 +1,20 @@
+diff --git a/src/core/layout/qgslayoutitemlabel.cpp b/src/core/layout/qgslayoutitemlabel.cpp
+index df93c82d574..251e7c69e3b 100644
+--- a/src/core/layout/qgslayoutitemlabel.cpp
++++ b/src/core/layout/qgslayoutitemlabel.cpp
+@@ -171,6 +171,7 @@ void QgsLayoutItemLabel::contentChanged()
+       mHtmlLoaded = false;
+ 
+       const QUrl baseUrl = QUrl::fromLocalFile( mLayout->project()->absoluteFilePath() );
++      mWebPage->settings()->setObjectCacheCapacities(0, 0, 0);
+       mWebPage->mainFrame()->setHtml( textToDraw, baseUrl );
+ 
+       //For very basic html labels with no external assets, the html load will already be
 diff --git a/src/server/CMakeLists.txt b/src/server/CMakeLists.txt
-index 65fce97de7..5a91bcb3b2 100644
+index 65fce97de79..cc9d91c65e1 100644
 --- a/src/server/CMakeLists.txt
 +++ b/src/server/CMakeLists.txt
-@@ -51,6 +51,7 @@ set(QGIS_SERVER_SRCS
-   qgsfeaturefilter.cpp
-   qgsstorebadlayerinfo.cpp
-   qgsserverquerystringparameter.cpp
-+  watchdog.cpp
- )
- 
- set (QGIS_SERVER_HDRS
-@@ -67,6 +68,7 @@ set (QGIS_SERVER_HDRS
-   qgsserverquerystringparameter.h
-   qgsserversettings.h
-   qgsservicemodule.h
-+  watchdog.h
- )
- 
- 
-@@ -148,6 +150,26 @@ install(TARGETS qgis_server
+@@ -148,6 +148,26 @@ install(TARGETS qgis_server
  
  # end qgis_server library
  
@@ -45,43 +41,53 @@ index 65fce97de7..5a91bcb3b2 100644
  # add test resources, e.g. standard test font
  set(QGIS_SERVER_TESTRCCS ../../tests/testdata/testdata.qrc)
  
+diff --git a/src/server/qgis_map_serv.cpp b/src/server/qgis_map_serv.cpp
+index 2608ca74ec0..2334863cdab 100644
+--- a/src/server/qgis_map_serv.cpp
++++ b/src/server/qgis_map_serv.cpp
+@@ -90,7 +90,16 @@ int main( int argc, char *argv[] )
+     QgsFcgiServerResponse response( request.method() );
+     if ( ! request.hasError() )
+     {
+-      server.handleRequest( request, response );
++      try
++      {
++        server.handleRequest( request, response );
++      }
++      catch ( QgsException &ex )
++      {
++        // Internal server error
++        response.sendError( 500, QStringLiteral( "Internal Server Error" ) );
++        QgsMessageLog::logMessage( ex.what(), QStringLiteral( "Server" ), Qgis::MessageLevel::Critical );
++      }
+     }
+     else
+     {
 diff --git a/src/server/qgsserver.cpp b/src/server/qgsserver.cpp
-index db8fc755d2..96805548b9 100644
+index db8fc755d23..e5e5c385aaa 100644
 --- a/src/server/qgsserver.cpp
 +++ b/src/server/qgsserver.cpp
-@@ -50,6 +50,9 @@
+@@ -50,6 +50,8 @@
  #include <fcgi_stdio.h>
  #include <cstdlib>
  
 +#include <QScopeGuard>
 +#include <sentry.h>
-+#include "watchdog.h"
  
  // Server status static initializers.
  // Default values are for C++, SIP bindings will override their
-@@ -65,6 +68,8 @@ QgsServiceRegistry *QgsServer::sServiceRegistry = nullptr;
- 
- Q_GLOBAL_STATIC( QgsServerSettings, sSettings );
- 
-+Q_GLOBAL_STATIC( Watchdog, sWatchdog );
-+
- QgsServer::QgsServer()
- {
-   // QgsApplication must exist
-@@ -77,6 +82,12 @@ QgsServer::QgsServer()
+@@ -77,6 +79,10 @@ QgsServer::QgsServer()
    mConfigCache = QgsConfigCache::instance();
  }
  
 +QgsServer::~QgsServer()
 +{
-+  sWatchdog()->exit();
-+  sWatchdog()->wait();
 +}
 +
  QFileInfo QgsServer::defaultAdminSLD()
  {
    return QFileInfo( QStringLiteral( "admin.sld" ) );
-@@ -189,6 +200,16 @@ bool QgsServer::init()
+@@ -189,6 +195,11 @@ bool QgsServer::init()
      return false;
    }
  
@@ -89,16 +95,11 @@ index db8fc755d2..96805548b9 100644
 +  sentry_init(options);
 +
 +  qInfo() << "QGIS Server thread running on " << QThread::currentThread();
-+  sWatchdog()->start();
-+  QgsApplication::instance()->processEvents(); // Needed to start thread
-+  sWatchdog()->wakeUp();
-+
-+  // QObject::connect( QgsApplication::instance(), &QCoreApplication::aboutToQuit, sWatchdog(), []() { qWarning() << "Terminating"; sWatchdog()->exit(); sWatchdog()->wait(); } );
 +
    QCoreApplication::setOrganizationName( QgsApplication::QGIS_ORGANIZATION_NAME );
    QCoreApplication::setOrganizationDomain( QgsApplication::QGIS_ORGANIZATION_DOMAIN );
    QCoreApplication::setApplicationName( QgsApplication::QGIS_APPLICATION_NAME );
-@@ -384,6 +405,18 @@ void QgsServer::putenv( const QString &var, const QString &val )
+@@ -384,9 +395,17 @@ void QgsServer::putenv( const QString &var, const QString &val )
  
  void QgsServer::handleRequest( QgsServerRequest &request, QgsServerResponse &response, const QgsProject *project )
  {
@@ -110,15 +111,15 @@ index db8fc755d2..96805548b9 100644
 +    sentry_add_breadcrumb( crumb );
 +  } );
 +
-+  sWatchdog()->wakeUp();
-+  qInfo() << "Handling request :: " << request.url().toString();
-+  QScopeGuard guard = qScopeGuard( [request] { qInfo() << "Done with request :: " << request.url().toString(); sWatchdog()->sleep(); } );
-+
    const Qgis::MessageLevel logLevel = QgsServerLogger::instance()->logLevel();
    {
+-
++    QScopeGuard postProcessEvents = qScopeGuard( [] { qApp->processEvents(); } );
+     const QgsScopedRuntimeProfile profiler { QStringLiteral( "handleRequest" ), QStringLiteral( "server" ) };
  
+     qApp->processEvents();
 diff --git a/src/server/qgsserver.h b/src/server/qgsserver.h
-index 47159845d1..ae558b239a 100644
+index 47159845d11..ae558b239ad 100644
 --- a/src/server/qgsserver.h
 +++ b/src/server/qgsserver.h
 @@ -54,6 +54,8 @@ class SERVER_EXPORT QgsServer
@@ -130,99 +131,100 @@ index 47159845d1..ae558b239a 100644
      /**
       * Set environment variable
       * \param var environment variable name
-diff --git a/src/server/watchdog.cpp b/src/server/watchdog.cpp
-new file mode 100644
-index 0000000000..4fde0bcc6c
---- /dev/null
-+++ b/src/server/watchdog.cpp
-@@ -0,0 +1,64 @@
-+#include "watchdog.h"
-+#include "qgsmessagelog.h"
-+#include "qgis.h"
-+#include <csignal>
-+#include <QtGlobal>
-+#include <QEventLoop>
-+#include <QDebug>
-+#include "qgsapplication.h"
-+#include <QMutexLocker>
+diff --git a/src/server/services/wfs3/qgswfs3handlers.cpp b/src/server/services/wfs3/qgswfs3handlers.cpp
+index 698f1404e82..79b056f9b8c 100644
+--- a/src/server/services/wfs3/qgswfs3handlers.cpp
++++ b/src/server/services/wfs3/qgswfs3handlers.cpp
+@@ -1106,6 +1106,7 @@ const QList<QgsServerQueryStringParameter> QgsWfs3CollectionsItemsHandler::field
+ 
+ void QgsWfs3CollectionsItemsHandler::handleRequest( const QgsServerApiContext &context ) const
+ {
++  QgsMessageLog::logMessage( QStringLiteral( "handle request" ), QStringLiteral( "Server" ), Qgis::MessageLevel::Info );
+   if ( ! context.project() )
+   {
+     throw QgsServerApiImproperlyConfiguredException( QStringLiteral( "Project is invalid or undefined" ) );
+@@ -1116,17 +1117,22 @@ void QgsWfs3CollectionsItemsHandler::handleRequest( const QgsServerApiContext &c
+   // Check if the layer is published, raise not found if it is not
+   checkLayerIsAccessible( mapLayer, context );
+ 
++  QgsMessageLog::logMessage( QStringLiteral( "layer is accessible" ), QStringLiteral( "Server" ), Qgis::MessageLevel::Info );
 +
-+void Watchdog::run()
-+{
-+  QgsMessageLog::logMessage("-- Watchdog running --", "watchdog", Qgis::Info);
-+  QTimer feedbackTimer;
-+  connect( &feedbackTimer, &QTimer::timeout, this, [=]() {
-+    QMutexLocker locker( &mMutex );
-+    if ( mCounter != -1 )
-+    {
-+      mCounter++;
-+      if ( mCounter > mTimeout )
-+        bark();
-+    }
-+  } );
-+  feedbackTimer.setSingleShot( false );
-+  feedbackTimer.start( 1000 );
+   const std::string title { mapLayer->title().isEmpty() ? mapLayer->name().toStdString() : mapLayer->title().toStdString() };
+ 
+   // Get parameters
+   QVariantMap params = values( context );
+ 
++  QgsMessageLog::logMessage( QStringLiteral( "switch '%1'" ).arg( QgsServerRequest::methodToString( context.request()->method() ) ), QStringLiteral( "Server" ), Qgis::MessageLevel::Info );
 +
-+  const QString timeoutEnv = getenv( "QGIS_SERVER_WATCHDOG_TIMEOUT" ); // in msec
-+  bool timeoutOk = false;
-+  if ( !timeoutEnv.isEmpty() )
-+  {
-+    mTimeout = timeoutEnv.toInt( &timeoutOk );
-+    qWarning() << "Watchdog initialized with timeout: " << mTimeout;
-+  }
-+
-+  if ( !timeoutOk )
-+  {
-+    qWarning() << "Default timeout 100000";
-+    QgsMessageLog::logMessage( "No QGIS_SERVER_WATCHDOG_TIMEOUT specified, defaulting to 100000", QStringLiteral( "Server" ), Qgis::MessageLevel::Warning );
-+    mTimeout = 100000;
-+  }
-+  // From msec to sec
-+  mTimeout /= 1000;
-+
-+  qInfo() << "Starting watchdog thread on " << QThread::currentThread();
-+  exec();
-+  qInfo() << "Ending watchdog";
-+}
-+
-+void Watchdog::wakeUp()
-+{
-+  QMutexLocker locker( &mMutex );
-+  mCounter = 0;
-+}
-+
-+void Watchdog::sleep()
-+{
-+  QMutexLocker locker( &mMutex );
-+  mCounter = -1;
-+}
-+
-+void Watchdog::bark()
-+{
-+  qFatal( "BOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOM" );
-+}
-diff --git a/src/server/watchdog.h b/src/server/watchdog.h
-new file mode 100644
-index 0000000000..642c2ba044
---- /dev/null
-+++ b/src/server/watchdog.h
-@@ -0,0 +1,20 @@
-+#include <QThread>
-+#include <QTimer>
-+#include <QMutex>
-+
-+class Watchdog : public QThread
-+{
-+  public:
-+    void run();
-+
-+    void wakeUp();
-+    void sleep();
-+
-+  private:
-+    void bark();
-+
-+  private:
-+    QMutex mMutex;
-+    int mCounter;
-+    int mTimeout;
-+};
+   switch ( context.request()->method() )
+   {
+     // //////////////////////////////////////////////////////////////
+     // Retrieve features
+     case QgsServerRequest::Method::GetMethod:
+     {
++      QgsMessageLog::logMessage( QStringLiteral( "get features" ), QStringLiteral( "Server" ), Qgis::MessageLevel::Info );
+       // Validate inputs
+       bool ok { false };
+ 
+@@ -1288,6 +1294,7 @@ void QgsWfs3CollectionsItemsHandler::handleRequest( const QgsServerApiContext &c
+       long i { 0 };
+       QMap<QgsFeatureId, QString> fidMap;
+ 
++      QgsMessageLog::logMessage( QStringLiteral( "looping features" ), QStringLiteral( "Server" ), Qgis::MessageLevel::Info );
+       while ( features.nextFeature( feat ) )
+       {
+         // Ignore records before offset
+@@ -1298,6 +1305,7 @@ void QgsWfs3CollectionsItemsHandler::handleRequest( const QgsServerApiContext &c
+         }
+         i++;
+       }
++      QgsMessageLog::logMessage( QStringLiteral( "end looping features" ), QStringLiteral( "Server" ), Qgis::MessageLevel::Info );
+ 
+       // Count features
+       long matchedFeaturesCount = 0;
+@@ -1323,6 +1331,7 @@ void QgsWfs3CollectionsItemsHandler::handleRequest( const QgsServerApiContext &c
+       }
+ 
+       json data = exporter.exportFeaturesToJsonObject( featureList );
++      QgsMessageLog::logMessage( QStringLiteral( "exported to json" ), QStringLiteral( "Server" ), Qgis::MessageLevel::Info );
+ 
+       // Patch feature IDs with server feature IDs
+       for ( int i = 0; i < featureList.length(); i++ )
+@@ -1363,6 +1372,7 @@ void QgsWfs3CollectionsItemsHandler::handleRequest( const QgsServerApiContext &c
+         }
+       }
+ 
++      QgsMessageLog::logMessage( QStringLiteral( "this and that" ), QStringLiteral( "Server" ), Qgis::MessageLevel::Info );
+       // Add prev - next links
+       if ( offset != 0 )
+       {
+@@ -1398,13 +1408,16 @@ void QgsWfs3CollectionsItemsHandler::handleRequest( const QgsServerApiContext &c
+         { "navigation", navigation }
+       };
+ 
++      QgsMessageLog::logMessage( QStringLiteral( "write" ), QStringLiteral( "Server" ), Qgis::MessageLevel::Info );
+       write( data, context, htmlMetadata );
++      QgsMessageLog::logMessage( QStringLiteral( "done" ), QStringLiteral( "Server" ), Qgis::MessageLevel::Info );
+       break;
+     }
+     // //////////////////////////////////////////////////////////////
+     // Create a new feature
+     case QgsServerRequest::Method::PostMethod:
+     {
++      QgsMessageLog::logMessage( QStringLiteral( "post" ), QStringLiteral( "Server" ), Qgis::MessageLevel::Info );
+       // First: check permissions
+       const QStringList wfstInsertLayerIds = QgsServerProjectUtils::wfstInsertLayerIds( *context.project() );
+       if ( ! wfstInsertLayerIds.contains( mapLayer->id() ) || ! mapLayer->dataProvider()->capabilities().testFlag( QgsVectorDataProvider::Capability::AddFeatures ) )
+@@ -1545,10 +1558,12 @@ void QgsWfs3CollectionsItemsHandler::handleRequest( const QgsServerApiContext &c
+     // Error
+     default:
+     {
++      QgsMessageLog::logMessage( QStringLiteral( "throw not implemented exception: %1" ).arg( QgsServerRequest::methodToString( context.request()->method() ) ), QStringLiteral( "Server" ), Qgis::MessageLevel::Info );
+       throw QgsServerApiNotImplementedException( QStringLiteral( "%1 method is not implemented." )
+           .arg( QgsServerRequest::methodToString( context.request()->method() ) ) );
+     }
+   } // end switch
++  QgsMessageLog::logMessage( QStringLiteral( "and we are finished" ), QStringLiteral( "Server" ), Qgis::MessageLevel::Info );
+ }
+ 
+ QgsWfs3CollectionsFeatureHandler::QgsWfs3CollectionsFeatureHandler()

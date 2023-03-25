@@ -109,6 +109,7 @@ endif
 
 # Adjust debian/libqgis-server{QGIS_ABI}.install as well
 # CMAKE_OPTS += -DCMAKE_BUILD_TYPE=Debug
+CMAKE_OPTS += -DCMAKE_BUILD_TYPE=RelWithDebInfo
 CMAKE_OPTS += -DENABLE_TESTS=FALSE
 
 CPPFLAGS := $(shell dpkg-buildflags --get CPPFLAGS)
